@@ -20,7 +20,7 @@ export const TOPICS = [
 
 export const LABELS = {
   karisik: 'Karışık', rastgele: 'Rastgele', bugun: 'Tarihte bugün', ilkyardim: 'İlk yardım',
-  merak: 'İlginç', populer: 'Gündemde', ogun: 'O gün popüler', seckin: 'Seçkin',
+  merak: 'İlginç', populer: 'Gündemde', ogun: 'O gün', seckin: 'Seçkin',
   ...Object.fromEntries(TOPICS.map(t => [t.key, t.label])),
 };
 export const HUES = {
@@ -61,10 +61,10 @@ export function wikiToCards(json, cat, { minBytes = 0, idPrefix = 'w' } = {}) {
 }
 
 /** REST feed/onthisday/events yanıtını kartlara çevirir. */
-export function onThisDayToCards(json, mm, dd) {
+export function onThisDayToCards(json, mm, dd, maxYear = Infinity) {
   const out = [];
   (json?.events || []).forEach((e, i) => {
-    if (!e?.text) return;
+    if (!e?.text || e.year > maxYear) return;
     const pages = e.pages || [];
     const withImg = pages.find(p => p.thumbnail?.source);
     const last = pages[pages.length - 1];
@@ -166,7 +166,6 @@ export const SECKIN_Q = 'incategory:"Seçkin maddeler|Kaliteli maddeler"';
 // Doğrulanmamış başlangıç değerleri
 export const MIN_BYTES_RANDOM = 5000; // rastgele kanalda bundan kısa (bayt) maddeler atlanır
 export const TOP_TAKE = 150;          // günün en çok okunanlarından kaç madde alınır
-export const PV_FIRST_YEAR = 2016;    // okunma verisi 2015 ortasında başlar
 
 const NS_RE = /^(Özel|Vikipedi|Dosya|Kategori|Kullanıcı|Şablon|Portal|Yardım|Tartışma|Modül|Special|Wikipedia|MediaWiki):/;
 
@@ -179,17 +178,31 @@ export function topTitles(json, limit = TOP_TAKE) {
     .map(a => ({ title: a.article.replace(/_/g, ' '), views: a.views, rank: a.rank }));
 }
 
-const MEDIA_RE = /(?<!\p{L})(film|filmi|dizi|dizisi|şarkı|şarkısı|albüm|albümü|tekli|teklisi|single|anime)(?!\p{L})/iu;
-/** Kısa açıklama bir film, dizi ya da şarkı/albümü mü anlatıyor? */
-export function isMedia(desc) {
-  return MEDIA_RE.test(String(desc || ''));
+/* ---------- O gün: bu tarihte çıkan yabancı filmler ve albümler (Vikiveri) ---------- */
+// Öncelikli ülkeler: ABD, Birleşik Krallık, Fransa, Almanya
+export const ULKELER = ['Q30', 'Q145', 'Q142', 'Q183'];
+export const OGUN_GAP = 2; // "geçen yıl değil": en az bu kadar yıl öncesi (doğrulanmamış başlangıç değeri)
+
+/** Vikiveri sorgusu: ay/günde yayımlanmış, Türkçe Vikipedi maddesi olan film ya da albümler. */
+export function sparqlThatDay(kind, m, d, maxYear) {
+  const tr = '?sl schema:about ?item; schema:isPartOf <https://tr.wikipedia.org/>; schema:name ?name.';
+  const when = `?item wdt:P577 ?date. FILTER(MONTH(?date)=${m} && DAY(?date)=${d} && YEAR(?date)<=${maxYear})`;
+  const body = kind === 'film'
+    ? `VALUES ?c { ${ULKELER.map(q => 'wd:' + q).join(' ')} } ?item wdt:P495 ?c; wdt:P31 wd:Q11424. ${when} ${tr}`
+    : `?item wdt:P31 wd:Q482994. ${when} ${tr} ` + // Türkiye kaynaklı albümler dışarıda
+      'FILTER NOT EXISTS { ?item wdt:P495 wd:Q43 } FILTER NOT EXISTS { ?item wdt:P175/wdt:P27 wd:Q43 } FILTER NOT EXISTS { ?item wdt:P175/wdt:P495 wd:Q43 }';
+  return `SELECT DISTINCT ?name ?y WHERE { ${body} BIND(YEAR(?date) AS ?y) } LIMIT 400`;
 }
 
-/** Bugünün ay/gününe denk gelen geçmiş yıllar. */
-export function pastYears(now = new Date()) {
-  const out = [];
-  for (let y = PV_FIRST_YEAR; y < now.getFullYear(); y++) out.push(y);
-  return out;
+/** SPARQL yanıtını [{title, year}] listesine çevirir; aynı başlık bir kez (en eski yılıyla) kalır. */
+export function sparqlRows(json) {
+  const by = new Map();
+  for (const b of json?.results?.bindings || []) {
+    const title = b?.name?.value, year = Number(b?.y?.value);
+    if (!title || !year) continue;
+    if (!by.has(title) || by.get(title) > year) by.set(title, year);
+  }
+  return [...by].map(([title, year]) => ({ title, year }));
 }
 
 /* ---------- Cümle içinde gezinme (geri al / ileri sar) ---------- */

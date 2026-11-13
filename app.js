@@ -1,11 +1,12 @@
 import { TOPICS, LABELS, HUES, wikiToCards, onThisDayToCards, shuffle, pickWeighted, topicWeight, dwellMs,
   tokenize, splitOrp, wordDelay, rsvpDuration, clampWpm, nudgeWpm, WPM_STEP,
-  AYLAR, MERAK, SECKIN_Q, MIN_BYTES_RANDOM, topTitles, isMedia, pastYears,
+  AYLAR, MERAK, SECKIN_Q, MIN_BYTES_RANDOM, topTitles, sparqlThatDay, sparqlRows, OGUN_GAP,
   sentenceStarts, sentenceRange, seekBack, seekFwd } from './lib.js';
 
 const API = 'https://tr.wikipedia.org/w/api.php';
 const REST = 'https://tr.wikipedia.org/api/rest_v1';
 const PV = 'https://wikimedia.org/api/rest_v1/metrics/pageviews/top/tr.wikipedia/all-access';
+const WDQS = 'https://query.wikidata.org/sparql';
 const IMG_CACHE = 'wikitube-img';
 // Doğrulanmamış başlangıç değerleri
 const BATCH = 20;          // API isteği başına madde (extracts sınırı 20)
@@ -15,7 +16,7 @@ const MIX_TAKE = 6;        // karışık akışta bir kaynaktan art arda alınan
 
 const $ = s => document.querySelector(s);
 const feed = $('#feed');
-const state = { cat: 'karisik', loading: false, seen: new Set(), pool: {}, auto: false, active: null, gen: 0, todayUsed: false, yearsUsed: new Set() };
+const state = { cat: 'karisik', loading: false, seen: new Set(), pool: {}, auto: false, active: null, gen: 0, todayUsed: false, ogun: null };
 const likes = JSON.parse(localStorage.getItem('likes') || '{}');
 // mode: null = henüz seçilmedi (karşılama kartı sorar), 'rsvp' = hızlı oku, 'klasik'
 const settings = Object.assign({ mode: null, wpm: 300, img: false }, JSON.parse(localStorage.getItem('ayar') || '{}'));
@@ -134,26 +135,37 @@ async function fetchPopular() {
   }
   throw new Error('okunma verisi alınamadı');
 }
-/** O gün popüler: geçmiş bir yılın bugününde en çok okunan film, dizi ve şarkı maddeleri. */
+/**
+ * O gün: bu tarihte (en az OGUN_GAP yıl önce) çıkmış yabancı filmler ve albümler ile o günün tarihsel olayları.
+ * Film ve albüm listeleri Vikiveri'den oturumda bir kez alınır; kart metinleri Türkçe Vikipedi'den gelir.
+ */
 async function fetchThatDay() {
-  const now = new Date(), m = now.getMonth() + 1, d = now.getDate();
-  const years = shuffle(pastYears(now).filter(y => !state.yearsUsed.has(y)));
-  if (!years.length) { state.yearsUsed.clear(); return []; }
-  for (const y of years.slice(0, 3)) {
-    state.yearsUsed.add(y);
-    const list = await topOfDay(y, m, d);
-    const media = [];
-    for (let i = 0; i < list.length && media.length < BATCH; i += 50) { // açıklamalar 50'şer sorulur
-      const p = new URLSearchParams({ action: 'query', format: 'json', origin: '*', prop: 'description', redirects: 1,
-        titles: list.slice(i, i + 50).map(x => x.title).join('|') });
-      const j = await getJson(API + '?' + p);
-      for (const pg of Object.values(j?.query?.pages || {})) if (isMedia(pg.description)) media.push(pg.title);
-    }
-    if (!media.length) continue;
-    const cards = wikiToCards(await getJson(titlesUrl(media.slice(0, BATCH))), 'ogun', { idPrefix: `o${y}-` });
-    if (cards.length) return withNotes(cards, list, `${d} ${AYLAR[m - 1]} ${y}`);
+  const now = new Date(), m = now.getMonth() + 1, d = now.getDate(), maxYear = now.getFullYear() - OGUN_GAP;
+  if (!state.ogun) {
+    const q = kind => getJson(`${WDQS}?format=json&query=${encodeURIComponent(sparqlThatDay(kind, m, d, maxYear))}`).then(sparqlRows);
+    const [films, albums, events] = await Promise.allSettled([
+      q('film'), q('album'),
+      getJson(`${REST}/feed/onthisday/events/${pad(m)}/${pad(d)}`).then(j => onThisDayToCards(j, m, d, maxYear)),
+    ]);
+    const ok = r => r.status === 'fulfilled' ? shuffle(r.value) : [];
+    if ([films, albums, events].every(r => r.status === 'rejected')) throw new Error('o gün verisi alınamadı');
+    state.ogun = { films: ok(films), albums: ok(albums), events: ok(events) };
   }
-  return [];
+  const o = state.ogun;
+  const picks = [
+    ...o.films.splice(0, 8).map(x => ({ ...x, kind: 'film' })),
+    ...o.albums.splice(0, 6).map(x => ({ ...x, kind: 'albüm' })),
+  ];
+  let cards = [];
+  if (picks.length) {
+    const by = Object.fromEntries(picks.map(x => [x.title, x]));
+    cards = wikiToCards(await getJson(titlesUrl(picks.map(x => x.title))), 'ogun');
+    for (const c of cards) {
+      const x = by[c.title];
+      if (x) c.note = `${d} ${AYLAR[m - 1]} ${x.year} · ${x.kind === 'film' ? 'gösterime giren film' : 'yayımlanan albüm'}`;
+    }
+  }
+  return shuffle([...cards, ...o.events.splice(0, 5)]);
 }
 
 async function fetchCat(cat) {
@@ -189,7 +201,7 @@ async function source(cat, n) {
 function pickMixSource() {
   // Doğrulanmamış başlangıç ağırlıkları: ilgi çekici kaynaklar öne, düz rastgele geriye
   const cats = ['merak', 'seckin', 'populer', 'ogun', 'rastgele', 'ilkyardim', ...TOPICS.map(t => t.key)];
-  const w = [4, 3, 2, 1.5, 0.7, 0.4, ...TOPICS.map(t => topicWeight(likes[t.key]))];
+  const w = [4, 3, 2, 2.5, 0.7, 0.4, ...TOPICS.map(t => topicWeight(likes[t.key]))];
   if (!state.todayUsed) { cats.push('bugun'); w.push(3); }
   return pickWeighted(cats, w);
 }

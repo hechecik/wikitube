@@ -103,7 +103,7 @@ test('hız sınırları ve öneri', () => {
   assert.equal(nudgeWpm(4, 800), null);
 });
 
-import { topTitles, isMedia, pastYears, sentenceStarts, sentenceRange, seekBack, seekFwd, MERAK } from '../lib.js';
+import { topTitles, sparqlThatDay, sparqlRows, sentenceStarts, sentenceRange, seekBack, seekFwd, MERAK } from '../lib.js';
 
 test('wikiToCards: açıklama, bayt eşiği, kimlik öneki', () => {
   const json = { query: { pages: {
@@ -128,14 +128,27 @@ test('topTitles ad alanlarını ve ana sayfayı atar', () => {
   assert.deepEqual(topTitles({}), []);
 });
 
-test('isMedia', () => {
-  for (const d of ['2019 ABD yapımı film', 'Türk televizyon dizisi', 'Tarkan şarkısı', 'Sezen Aksu albümü', '2009 filmi'])
-    assert.ok(isMedia(d), d);
-  for (const d of ['Fransız futbolcu', 'filmografi', 'Türk yönetmen', '', undefined]) assert.ok(!isMedia(d), String(d));
+test('sparqlThatDay sorgusu', () => {
+  const f = sparqlThatDay('film', 11, 13, 2024);
+  assert.match(f, /MONTH\(\?date\)=11 && DAY\(\?date\)=13 && YEAR\(\?date\)<=2024/);
+  assert.match(f, /wd:Q30 wd:Q145 wd:Q142 wd:Q183/);
+  assert.match(f, /wd:Q11424/);
+  assert.match(f, /tr\.wikipedia\.org/);
+  const a = sparqlThatDay('album', 1, 2, 2000);
+  assert.match(a, /wd:Q482994/);
+  assert.match(a, /FILTER NOT EXISTS \{ \?item wdt:P495 wd:Q43 \}/);
 });
 
-test('pastYears', () => {
-  assert.deepEqual(pastYears(new Date(2019, 5, 1)), [2016, 2017, 2018]);
+test('sparqlRows başlıkları tekilleştirir', () => {
+  const v = (name, y) => ({ name: { value: name }, y: { value: String(y) } });
+  const json = { results: { bindings: [v('Temel İçgüdü', 1992), v('Temel İçgüdü', 1993), v('Dracula', 1992), { name: {} }] } };
+  assert.deepEqual(sparqlRows(json), [{ title: 'Temel İçgüdü', year: 1992 }, { title: 'Dracula', year: 1992 }]);
+  assert.deepEqual(sparqlRows({}), []);
+});
+
+test('onThisDayToCards yıl sınırı', () => {
+  const json = { events: [{ text: 'a', year: 2025, pages: [] }, { text: 'b', year: 1990, pages: [] }] };
+  assert.equal(onThisDayToCards(json, 11, 13, 2024).length, 1);
 });
 
 test('cümle içinde gezinme', () => {
