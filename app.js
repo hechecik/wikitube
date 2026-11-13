@@ -235,6 +235,7 @@ function restart(cat = state.cat) {
   feed.replaceChildren(settings.mode ? msgCard('', 'Kartlar hazırlanıyor…', null, null, true) : welcomeCard());
   feed.scrollTop = 0;
   document.querySelectorAll('#chips button').forEach(b => b.classList.toggle('on', b.dataset.cat === cat));
+  $('#chips .on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
   refill();
 }
 
@@ -420,6 +421,7 @@ const TI = {
   play: '<path d="M7 4l13 8-13 8z"/>',
   pause: '<path d="M7 4h3.5v16H7zM13.5 4H17v16h-3.5z"/>',
   fwd: '<path d="M13 6l7 6-7 6zM4 6l7 6-7 6z"/>',
+  next: '<path d="M5 5l10 7-10 7zM17 5h2.5v14H17z"/>',
 };
 const tsvg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${TI[k]}</svg>`;
 
@@ -436,6 +438,7 @@ function stageOf(el) {
       `<button data-tp="back" aria-label="Geri al: cümle başı">${tsvg('back')}</button>` +
       `<button data-tp="play" class="pp" aria-label="Oynat ya da duraklat">${tsvg('pause')}</button>` +
       `<button data-tp="fwd" aria-label="İleri sar: sonraki cümle">${tsvg('fwd')}</button>` +
+      `<button data-tp="next" aria-label="Sonraki kart">${tsvg('next')}</button>` +
     '</div>' +
     '<div class="ctl"><button class="slow" aria-label="Yavaşlat">−</button><span class="wpm"></span><button class="fast" aria-label="Hızlandır">+</button></div>' +
     '<div class="end" hidden></div>';
@@ -447,7 +450,12 @@ function showWord(st, w) {
   st.querySelector('.l').textContent = l;
   st.querySelector('.p').textContent = p;
   st.querySelector('.r').textContent = r;
-  st.querySelector('.word').style.setProperty('--s', Math.min(1, 13 / [...w].length));
+  // Odak harfi tam ortada durur; taşan uzun kelime iki yana sığacak kadar küçültülür.
+  const word = st.querySelector('.word');
+  word.style.setProperty('--s', 1);
+  const half = word.clientWidth / 2 - 14;
+  const need = Math.max(st.querySelector('.l').scrollWidth, st.querySelector('.r').scrollWidth);
+  if (half > 0 && need > half) word.style.setProperty('--s', half / need);
 }
 function paintWpm() {
   document.querySelectorAll('.stage .wpm').forEach(x => x.textContent = `${settings.wpm} kelime/dk`);
@@ -471,6 +479,7 @@ function paint() {
   st.querySelector('.meta').textContent = rs.done ? '' : (rs.paused ? 'Duraklatıldı · ' : '') + `${fmt(left)} kelime kaldı · yaklaşık ${sec} sn`;
   st.querySelector('.pp').innerHTML = tsvg(rs.paused || rs.done ? 'play' : 'pause');
   el.classList.toggle('paused', rs.paused && !rs.done);
+  el.classList.toggle('done', rs.done);
 }
 function schedule(extra = 0) {
   clearTimeout(rs.t);
@@ -549,6 +558,7 @@ function setWpm(w) {
   if (rs.el) paint();
 }
 function transport(el, tp) {
+  if (tp === 'next') return go(1);
   if (rs.el !== el) return rsvpStart(el);
   if (tp === 'restart') return rsvpStart(el);
   if (tp === 'play') return rs.done ? rsvpStart(el) : rsvpPause(!rs.paused);

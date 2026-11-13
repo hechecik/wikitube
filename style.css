@@ -20,7 +20,8 @@ button { cursor: pointer; }
 .brand { font-weight: 800; letter-spacing: -.02em; font-size: 19px; padding: 0 16px 8px; display: flex; align-items: center; gap: 8px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: #39d98a; box-shadow: 0 0 0 3px #39d98a33; }
 .dot.off { background: var(--accent); box-shadow: 0 0 0 3px #ffb02033; }
-#chips { display: flex; gap: 8px; overflow-x: auto; padding: 0 16px; scrollbar-width: none; }
+#chips { display: flex; gap: 8px; overflow-x: auto; padding: 0 44px 0 16px; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 44px), #0000); mask-image: linear-gradient(90deg, #000 calc(100% - 44px), #0000); }
 #chips::-webkit-scrollbar { display: none; }
 #chips button { flex: none; border: 1px solid var(--line); background: #0008; backdrop-filter: blur(8px);
   border-radius: 999px; padding: 6px 13px; font-size: 14px; font-weight: 600; }
@@ -119,7 +120,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .card.rsvp .txt, .card.rsvp.noimg .txt { padding: calc(112px + var(--safe-t)) 18px 0; }
 .card.rsvp h2 { font-size: clamp(22px, 5.6vw, 27px); margin-bottom: 4px; }
 .card.rsvp .stage { display: flex; flex-direction: column; justify-content: flex-start; flex: 1; padding: 3dvh 0 0; }
-.word { --s: 1; display: grid; grid-template-columns: 38% auto 1fr; align-items: baseline; white-space: nowrap; cursor: pointer;
+.word { --s: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: baseline; white-space: nowrap; cursor: pointer;
   font-weight: 700; font-size: calc(clamp(34px, 10.5vw, 50px) * var(--s)); line-height: 1; letter-spacing: -.01em;
   padding: 34px 0; border-block: 2px solid #ffffff2e; background: #0006; }
 .word .l { text-align: right; } .word .r { text-align: left; }
@@ -129,10 +130,10 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .card.paused .word { opacity: .55; }
 .rbar { height: 3px; background: #ffffff1f; margin: 12px 18px 0; border-radius: 2px; overflow: hidden; }
 .rbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s linear; }
-.ctl { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 12px; padding: 0 72px; }
+.ctl { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 12px; }
 .ctl button, .speed button { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: #ffffff14; font-size: 22px; font-weight: 700; line-height: 1; }
 .ctl .wpm { min-width: 118px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 14px; color: #d9d5cc; }
-.end { text-align: center; padding: 14px 72px 0 18px; }
+.end { text-align: center; padding: 14px 18px 0; }
 .end b { display: block; font-size: 17px; } .end small { color: var(--muted); }
 .acts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
 .acts button { border: 1px solid var(--line); background: #ffffff14; border-radius: 999px; padding: 8px 14px; font-weight: 700; font-size: 14px; }
@@ -163,14 +164,71 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .note { display: inline-block; font-size: 13px; font-weight: 600; color: hsl(var(--h) 85% 72%); margin-bottom: 8px; }
 
 /* hızlı okuma: bağlam cümlesi, kalan süre, oynatma düğmeleri */
-.ctx { margin: 14px 18px 0; padding-right: 58px; min-height: 4.5em; max-height: 6em; overflow: hidden; font-size: 15px; line-height: 1.5; color: #ffffff4d; }
+.ctx { margin: 14px auto 0; padding: 0 22px; min-height: 4.5em; max-height: 6em; overflow: hidden; font-size: 15px; line-height: 1.5; color: #ffffff4d; text-align: center; text-wrap: balance; }
 .ctx .past { color: #ffffff99; } .ctx .cur { color: var(--accent); font-weight: 700; }
-.meta { margin: 8px 18px 0; min-height: 20px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.tp { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 10px; padding: 0 72px; }
-.tp button { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line); background: #ffffff14; display: grid; place-items: center; transition: transform .12s; }
+.meta { margin: 8px 18px 0; text-align: center; min-height: 20px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tp { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; }
+.tp button { width: 46px; height: 46px; flex: none; border-radius: 50%; border: 1px solid var(--line); background: #ffffff14; display: grid; place-items: center; transition: transform .12s; }
 .tp button:active { transform: scale(.9); }
 .tp svg { width: 22px; height: 22px; fill: #fff; stroke: #fff; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
 .tp button[data-tp=restart] svg { fill: none; stroke-width: 2; }
 .tp .pp { width: 62px; height: 62px; background: var(--fg); border-color: var(--fg); }
 .tp .pp svg { fill: #111; stroke: #111; width: 26px; height: 26px; }
-@media (max-height: 700px) { .ctx { min-height: 3em; max-height: 3em; } .word { padding: 22px 0; } }
+@media (max-height: 700px) and (max-width: 899px) {
+  .card.rsvp .txt, .card.rsvp.noimg .txt { padding-top: calc(92px + var(--safe-t)); }
+  .card.rsvp .desc { display: none; }
+  .card.rsvp h2 { font-size: 20px; }
+  .card.rsvp .stage { padding-top: 1dvh; }
+  .word { padding: 20px 0; }
+  .ctx { min-height: 3em; max-height: 3em; margin-top: 8px; }
+  .meta { margin-top: 4px; }
+  .tp { margin-top: 4px; } .tp button { width: 40px; height: 40px; } .tp .pp { width: 52px; height: 52px; }
+  .ctl { margin-top: 6px; } .ctl button { width: 34px; height: 34px; font-size: 18px; }
+  .card.rsvp .rail button { width: 40px; height: 40px; }
+  .card.rsvp .rail { bottom: calc(var(--tabs) + 8px); }
+}
+
+/* dar ekranda hızlı okurken beğen/kaydet düğmeleri alta, yatay sıraya iner: sahneyle çakışmaz */
+@media (max-width: 899px) {
+  .card.rsvp .rail { flex-direction: row; justify-content: center; left: 0; right: 0; bottom: calc(var(--tabs) + 14px); gap: 12px; }
+  .card.rsvp .rail button { width: 46px; height: 46px; }
+  .card.rsvp .stage { padding-bottom: calc(var(--tabs) + 74px); }
+}
+
+/* ---------- geniş ekran: solda kanal listesi, ortada sahne ---------- */
+@media (min-width: 900px) {
+  #app { max-width: none; --side: 248px; --tabs: 0px; }
+  #top { inset: 0 auto 0 0; width: var(--side); padding: 24px 0 0; z-index: 9; display: flex; flex-direction: column;
+    background: #0b0d10; border-right: 1px solid var(--line); }
+  .brand { font-size: 24px; padding: 0 22px 18px; }
+  #chips { flex-direction: column; gap: 2px; padding: 0 12px 76px; overflow: hidden auto; -webkit-mask-image: none; mask-image: none; }
+  #chips button { border: 0; background: none; backdrop-filter: none; text-align: left; border-radius: 10px; padding: 9px 12px; font-size: 15px; color: #d9d5cc; }
+  #chips button:hover { background: #ffffff10; }
+  #chips button.on { background: #ffffff1f; color: var(--fg); }
+  #tabs { inset: auto auto 0 0; width: var(--side); height: 56px; z-index: 10; background: #0b0d10; border-right: 1px solid var(--line); }
+  #feed { margin-left: var(--side); }
+  #flow { left: var(--side); }
+  .sheet { inset: 0 0 0 var(--side); }
+  .sheet > header, .sheet .body { width: 100%; max-width: 720px; margin-inline: auto; }
+  .sheet .body { flex: 1; }
+  #toast { left: calc(50% + var(--side) / 2); bottom: 28px; }
+
+  .card .txt, .stage > :not(.word), .opts { width: 100%; max-width: 760px; margin-inline: auto; }
+  .card .txt { padding-bottom: 48px; }
+  .card.rsvp .txt, .card.rsvp.noimg .txt { padding-top: 56px; }
+  .card.rsvp h2 { font-size: 34px; }
+  .card h2 { font-size: 40px; } .card p { font-size: 18px; }
+  .card .pic { inset: 40px 0 auto 0; }
+  .word { font-size: calc(76px * var(--s)); padding: 44px 0; }
+  .ctx { font-size: 17px; margin-top: 20px; }
+  .tp { gap: 16px; } .tp button { width: 50px; height: 50px; } .tp .pp { width: 68px; height: 68px; }
+  .end { padding: 14px 0 0; }
+  .rail { right: max(18px, calc(50% - 480px)); bottom: 40px; }
+  .card.pick .stage.demo { margin-top: 48px; }
+  .card.rsvp { justify-content: center; }
+  .card.rsvp .stage { flex: none; padding-bottom: 6dvh; }
+  .opts { max-width: 560px; }
+}
+
+/* kart bitince bağlam ve hız satırı yerini bitiş paneline bırakır */
+.card.done .ctx, .card.done .ctl, .card.done .meta { display: none; }
