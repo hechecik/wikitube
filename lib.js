@@ -20,14 +20,15 @@ export const TOPICS = [
 
 export const LABELS = {
   karisik: 'Karışık', rastgele: 'Rastgele', bugun: 'Tarihte bugün', ilkyardim: 'İlk yardım',
+  merak: 'İlginç', populer: 'Gündemde', ogun: 'O gün popüler', seckin: 'Seçkin',
   ...Object.fromEntries(TOPICS.map(t => [t.key, t.label])),
 };
 export const HUES = {
-  rastgele: 205, bugun: 38, ilkyardim: 355,
+  rastgele: 205, bugun: 38, ilkyardim: 355, merak: 48, populer: 12, ogun: 300, seckin: 160,
   ...Object.fromEntries(TOPICS.map(t => [t.key, t.hue])),
 };
 
-const AYLAR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+export const AYLAR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
 // Doğrulanmamış başlangıç değerleri: çok kısa taslak maddeleri ele, uzunları kırp.
 export const MIN_EXTRACT = 140;
@@ -43,15 +44,16 @@ export function clip(text, max = MAX_EXTRACT) {
 }
 
 /** MediaWiki action=query yanıtını kartlara çevirir. */
-export function wikiToCards(json, cat) {
+export function wikiToCards(json, cat, { minBytes = 0, idPrefix = 'w' } = {}) {
   const pages = Object.values(json?.query?.pages || {});
   const out = [];
   for (const p of pages) {
     const ex = (p.extract || '').trim();
-    if (ex.length < MIN_EXTRACT) continue;
+    if (!p.pageid || ex.length < MIN_EXTRACT) continue;
+    if ((p.length || 0) < minBytes) continue; // taslak maddeleri ele
     if (/anlamlara gelebilir|şu anlamlara gel/i.test(ex.slice(0, 200))) continue; // anlam ayrımı
     out.push({
-      id: 'w' + p.pageid, cat, title: p.title, text: clip(ex),
+      id: idPrefix + p.pageid, cat, title: p.title, desc: p.description || '', text: clip(ex),
       img: p.thumbnail?.source || '', url: p.fullurl || '', src: 'Vikipedi',
     });
   }
@@ -154,4 +156,64 @@ export function clampWpm(w) {
 export function nudgeWpm(doneAtSpeed, wpm) {
   if (doneAtSpeed > 0 && doneAtSpeed % NUDGE_EVERY === 0 && wpm < WPM_MAX) return clampWpm(wpm + WPM_STEP);
   return null;
+}
+
+/* ---------- İlgi çekici içerik kaynakları ---------- */
+// "X etkisi", "X paradoksu" gibi kısa ve merak uyandıran maddeleri yakalayan aramalar.
+export const MERAK = ['paradoksu', 'etkisi', 'sendromu', 'yanılgısı', 'deneyi', 'yasası', 'illüzyonu', 'fenomeni',
+  'hipotezi', 'gizemi', 'efsanesi', 'ilkesi', 'problemi', 'teorisi'].map(w => 'intitle:' + w);
+export const SECKIN_Q = 'incategory:"Seçkin maddeler|Kaliteli maddeler"';
+// Doğrulanmamış başlangıç değerleri
+export const MIN_BYTES_RANDOM = 5000; // rastgele kanalda bundan kısa (bayt) maddeler atlanır
+export const TOP_TAKE = 150;          // günün en çok okunanlarından kaç madde alınır
+export const PV_FIRST_YEAR = 2016;    // okunma verisi 2015 ortasında başlar
+
+const NS_RE = /^(Özel|Vikipedi|Dosya|Kategori|Kullanıcı|Şablon|Portal|Yardım|Tartışma|Modül|Special|Wikipedia|MediaWiki):/;
+
+/** Wikimedia pageviews/top yanıtından madde listesini çıkarır: [{title, views, rank}]. */
+export function topTitles(json, limit = TOP_TAKE) {
+  const arts = json?.items?.[0]?.articles || [];
+  return arts
+    .filter(a => a?.article && a.article !== 'Anasayfa' && a.article !== '-' && !NS_RE.test(a.article))
+    .slice(0, limit)
+    .map(a => ({ title: a.article.replace(/_/g, ' '), views: a.views, rank: a.rank }));
+}
+
+const MEDIA_RE = /(?<!\p{L})(film|filmi|dizi|dizisi|şarkı|şarkısı|albüm|albümü|tekli|teklisi|single|anime)(?!\p{L})/iu;
+/** Kısa açıklama bir film, dizi ya da şarkı/albümü mü anlatıyor? */
+export function isMedia(desc) {
+  return MEDIA_RE.test(String(desc || ''));
+}
+
+/** Bugünün ay/gününe denk gelen geçmiş yıllar. */
+export function pastYears(now = new Date()) {
+  const out = [];
+  for (let y = PV_FIRST_YEAR; y < now.getFullYear(); y++) out.push(y);
+  return out;
+}
+
+/* ---------- Cümle içinde gezinme (geri al / ileri sar) ---------- */
+/** Cümle başlangıcı olan kelime dizinleri. */
+export function sentenceStarts(words) {
+  const out = [0];
+  for (let i = 0; i < words.length - 1; i++) if (/[.!?…]["”')\]]?$/.test(words[i])) out.push(i + 1);
+  return out;
+}
+/** i. kelimenin içinde bulunduğu cümle: [başlangıç, bitiş). */
+export function sentenceRange(starts, i, n) {
+  let a = 0, b = n;
+  for (const s of starts) { if (s <= i) a = s; else { b = s; break; } }
+  return [a, b];
+}
+/** Geri al: cümlenin içindeysen başına, başındaysan önceki cümleye. */
+export function seekBack(starts, i) {
+  const [a] = sentenceRange(starts, i, Infinity);
+  if (i - a > 2) return a;
+  const k = starts.indexOf(a);
+  return k > 0 ? starts[k - 1] : 0;
+}
+/** İleri sar: sonraki cümlenin başı; yoksa -1. */
+export function seekFwd(starts, i) {
+  const nx = starts.find(s => s > i);
+  return nx === undefined ? -1 : nx;
 }

@@ -19,7 +19,7 @@ test('wikiToCards kısa ve anlam ayrımı sayfalarını eler', () => {
   } } };
   const cards = wikiToCards(json, 'tip');
   assert.equal(cards.length, 1);
-  assert.deepEqual({ ...cards[0], text: '' }, { id: 'w1', cat: 'tip', title: 'A', text: '', img: 'i', url: 'u', src: 'Vikipedi' });
+  assert.deepEqual({ ...cards[0], text: '' }, { id: 'w1', cat: 'tip', title: 'A', desc: '', text: '', img: 'i', url: 'u', src: 'Vikipedi' });
   assert.deepEqual(wikiToCards({}, 'x'), []);
 });
 
@@ -101,4 +101,56 @@ test('hız sınırları ve öneri', () => {
   assert.equal(nudgeWpm(3, 300), null);
   assert.equal(nudgeWpm(4, 300), 350);
   assert.equal(nudgeWpm(4, 800), null);
+});
+
+import { topTitles, isMedia, pastYears, sentenceStarts, sentenceRange, seekBack, seekFwd, MERAK } from '../lib.js';
+
+test('wikiToCards: açıklama, bayt eşiği, kimlik öneki', () => {
+  const json = { query: { pages: {
+    1: { pageid: 1, title: 'A', extract: long, length: 9000, description: 'açıklama' },
+    2: { pageid: 2, title: 'B', extract: long, length: 100 },
+  } } };
+  const c = wikiToCards(json, 'rastgele', { minBytes: 5000, idPrefix: 'o2019-' });
+  assert.equal(c.length, 1);
+  assert.equal(c[0].id, 'o2019-1');
+  assert.equal(c[0].desc, 'açıklama');
+});
+
+test('topTitles ad alanlarını ve ana sayfayı atar', () => {
+  const json = { items: [{ articles: [
+    { article: 'Anasayfa', views: 9, rank: 1 }, { article: 'Özel:Ara', views: 8, rank: 2 },
+    { article: 'Avatar:_Suyun_Yolu', views: 7, rank: 3 }, { article: '-', views: 6, rank: 4 },
+    { article: 'Kurtlar_Vadisi', views: 5, rank: 5 },
+  ] }] };
+  assert.deepEqual(topTitles(json), [
+    { title: 'Avatar: Suyun Yolu', views: 7, rank: 3 }, { title: 'Kurtlar Vadisi', views: 5, rank: 5 }]);
+  assert.equal(topTitles(json, 1).length, 1);
+  assert.deepEqual(topTitles({}), []);
+});
+
+test('isMedia', () => {
+  for (const d of ['2019 ABD yapımı film', 'Türk televizyon dizisi', 'Tarkan şarkısı', 'Sezen Aksu albümü', '2009 filmi'])
+    assert.ok(isMedia(d), d);
+  for (const d of ['Fransız futbolcu', 'filmografi', 'Türk yönetmen', '', undefined]) assert.ok(!isMedia(d), String(d));
+});
+
+test('pastYears', () => {
+  assert.deepEqual(pastYears(new Date(2019, 5, 1)), [2016, 2017, 2018]);
+});
+
+test('cümle içinde gezinme', () => {
+  const w = 'Bir iki üç. Dört beş altı yedi! Sekiz.'.split(' ');
+  const st = sentenceStarts(w);
+  assert.deepEqual(st, [0, 3, 7]);
+  assert.deepEqual(sentenceRange(st, 4, w.length), [3, 7]);
+  assert.deepEqual(sentenceRange(st, 7, w.length), [7, 8]);
+  assert.equal(seekBack(st, 6), 3);  // cümlenin içinde: başına
+  assert.equal(seekBack(st, 4), 0);  // başına yakın: önceki cümle
+  assert.equal(seekBack(st, 1), 0);
+  assert.equal(seekFwd(st, 4), 7);
+  assert.equal(seekFwd(st, 7), -1);
+});
+
+test('merak aramaları intitle ile başlar', () => {
+  assert.ok(MERAK.length > 5 && MERAK.every(q => q.startsWith('intitle:')));
 });

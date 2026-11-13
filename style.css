@@ -115,10 +115,10 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .rail .mode.on { background: var(--fg); } .rail .mode.on svg { stroke: #111; fill: #111; }
 .stage { display: none; position: relative; z-index: 1; }
 .card.rsvp { justify-content: flex-start; }
-.card.rsvp .pic, .card.rsvp .txt p, .card.rsvp .more { display: none; }
+.card.rsvp .pic, .card.rsvp .txt p, .card.rsvp .more, .card.rsvp .src { display: none; }
 .card.rsvp .txt, .card.rsvp.noimg .txt { padding: calc(112px + var(--safe-t)) 18px 0; }
-.card.rsvp h2 { font-size: 20px; color: #d9d5cc; }
-.card.rsvp .stage { display: flex; flex-direction: column; justify-content: flex-start; flex: 1; padding: 12dvh 0 0; }
+.card.rsvp h2 { font-size: clamp(22px, 5.6vw, 27px); margin-bottom: 4px; }
+.card.rsvp .stage { display: flex; flex-direction: column; justify-content: flex-start; flex: 1; padding: 3dvh 0 0; }
 .word { --s: 1; display: grid; grid-template-columns: 38% auto 1fr; align-items: baseline; white-space: nowrap; cursor: pointer;
   font-weight: 700; font-size: calc(clamp(34px, 10.5vw, 50px) * var(--s)); line-height: 1; letter-spacing: -.01em;
   padding: 34px 0; border-block: 2px solid #ffffff2e; background: #0006; }
@@ -127,11 +127,10 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .word .p::before, .word .p::after { content: ""; position: absolute; left: 50%; width: 2px; height: 14px; background: var(--accent); translate: -50% 0; }
 .word .p::before { bottom: calc(100% + 18px); } .word .p::after { top: calc(100% + 18px); }
 .card.paused .word { opacity: .55; }
-.hint { height: 22px; margin-top: 8px; text-align: center; color: var(--muted); font-size: 13px; }
-.rbar { height: 3px; background: #ffffff1f; margin: 4px 18px 0; border-radius: 2px; overflow: hidden; }
+.rbar { height: 3px; background: #ffffff1f; margin: 12px 18px 0; border-radius: 2px; overflow: hidden; }
 .rbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s linear; }
-.ctl { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 16px; padding-right: 60px; padding-left: 60px; }
-.ctl button, .speed button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: #ffffff14; font-size: 22px; font-weight: 700; line-height: 1; }
+.ctl { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 12px; padding: 0 72px; }
+.ctl button, .speed button { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: #ffffff14; font-size: 22px; font-weight: 700; line-height: 1; }
 .ctl .wpm { min-width: 118px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 14px; color: #d9d5cc; }
 .end { text-align: center; padding: 14px 72px 0 18px; }
 .end b { display: block; font-size: 17px; } .end small { color: var(--muted); }
@@ -158,3 +157,20 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .seg button.on { background: var(--fg); color: #111; }
 .speed { display: flex; align-items: center; justify-content: center; gap: 18px; margin: 14px 0 6px; }
 .speed b { min-width: 130px; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* kart üst bilgisi */
+.desc { color: #d9d5cc; font-size: 15px; margin: -2px 0 8px; }
+.note { display: inline-block; font-size: 13px; font-weight: 600; color: hsl(var(--h) 85% 72%); margin-bottom: 8px; }
+
+/* hızlı okuma: bağlam cümlesi, kalan süre, oynatma düğmeleri */
+.ctx { margin: 14px 18px 0; padding-right: 58px; min-height: 4.5em; max-height: 6em; overflow: hidden; font-size: 15px; line-height: 1.5; color: #ffffff4d; }
+.ctx .past { color: #ffffff99; } .ctx .cur { color: var(--accent); font-weight: 700; }
+.meta { margin: 8px 18px 0; min-height: 20px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tp { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 10px; padding: 0 72px; }
+.tp button { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line); background: #ffffff14; display: grid; place-items: center; transition: transform .12s; }
+.tp button:active { transform: scale(.9); }
+.tp svg { width: 22px; height: 22px; fill: #fff; stroke: #fff; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.tp button[data-tp=restart] svg { fill: none; stroke-width: 2; }
+.tp .pp { width: 62px; height: 62px; background: var(--fg); border-color: var(--fg); }
+.tp .pp svg { fill: #111; stroke: #111; width: 26px; height: 26px; }
+@media (max-height: 700px) { .ctx { min-height: 3em; max-height: 3em; } .word { padding: 22px 0; } }

@@ -1,5 +1,5 @@
 // JS/CSS değişince sürümü artır.
-const V = 'wikitube-v1';
+const V = 'wikitube-v2';
 const IMG = 'wikitube-img';
 const IMG_MAX = 6000; // doğrulanmamış başlangıç değeri: önbellekte tutulan en fazla resim
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'lib.js', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-512.png', 'data/ilkyardim.json'];

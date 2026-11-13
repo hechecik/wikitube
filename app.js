@@ -1,8 +1,11 @@
 import { TOPICS, LABELS, HUES, wikiToCards, onThisDayToCards, shuffle, pickWeighted, topicWeight, dwellMs,
-  tokenize, splitOrp, wordDelay, clampWpm, nudgeWpm, WPM_STEP } from './lib.js';
+  tokenize, splitOrp, wordDelay, rsvpDuration, clampWpm, nudgeWpm, WPM_STEP,
+  AYLAR, MERAK, SECKIN_Q, MIN_BYTES_RANDOM, topTitles, isMedia, pastYears,
+  sentenceStarts, sentenceRange, seekBack, seekFwd } from './lib.js';
 
 const API = 'https://tr.wikipedia.org/w/api.php';
 const REST = 'https://tr.wikipedia.org/api/rest_v1';
+const PV = 'https://wikimedia.org/api/rest_v1/metrics/pageviews/top/tr.wikipedia/all-access';
 const IMG_CACHE = 'wikitube-img';
 // Doğrulanmamış başlangıç değerleri
 const BATCH = 20;          // API isteği başına madde (extracts sınırı 20)
@@ -12,7 +15,7 @@ const MIX_TAKE = 6;        // karışık akışta bir kaynaktan art arda alınan
 
 const $ = s => document.querySelector(s);
 const feed = $('#feed');
-const state = { cat: 'karisik', loading: false, seen: new Set(), pool: {}, auto: false, active: null, gen: 0, todayUsed: false };
+const state = { cat: 'karisik', loading: false, seen: new Set(), pool: {}, auto: false, active: null, gen: 0, todayUsed: false, yearsUsed: new Set() };
 const likes = JSON.parse(localStorage.getItem('likes') || '{}');
 // mode: null = henüz seçilmedi (karşılama kartı sorar), 'rsvp' = hızlı oku, 'klasik'
 const settings = Object.assign({ mode: null, wpm: 300, img: false }, JSON.parse(localStorage.getItem('ayar') || '{}'));
@@ -78,24 +81,94 @@ async function getJson(url) {
     return await r.json();
   } finally { clearTimeout(t); }
 }
-function wikiUrl(cat) {
-  const p = new URLSearchParams({
+function baseParams() {
+  return new URLSearchParams({
     action: 'query', format: 'json', origin: '*',
-    prop: 'extracts|pageimages|info', exintro: 1, explaintext: 1, exlimit: BATCH,
+    prop: 'extracts|pageimages|info|description', exintro: 1, explaintext: 1, exlimit: BATCH,
     piprop: 'thumbnail', pithumbsize: 500, pilimit: BATCH, inprop: 'url',
   });
-  const t = TOPICS.find(t => t.key === cat);
-  if (t) { p.set('generator', 'search'); p.set('gsrsearch', 'articletopic:' + t.q); p.set('gsrsort', 'random'); p.set('gsrlimit', BATCH); p.set('gsrnamespace', 0); }
-  else { p.set('generator', 'random'); p.set('grnnamespace', 0); p.set('grnlimit', BATCH); }
+}
+function searchUrl(q) {
+  const p = baseParams();
+  p.set('generator', 'search'); p.set('gsrsearch', q); p.set('gsrsort', 'random'); p.set('gsrlimit', BATCH); p.set('gsrnamespace', 0);
   return API + '?' + p;
 }
+function randomUrl() {
+  const p = baseParams();
+  p.set('generator', 'random'); p.set('grnnamespace', 0); p.set('grnlimit', BATCH);
+  return API + '?' + p;
+}
+function titlesUrl(titles) {
+  const p = baseParams();
+  p.set('titles', titles.join('|')); p.set('redirects', 1);
+  return API + '?' + p;
+}
+const pad = n => String(n).padStart(2, '0');
+
+/** Bir günün Türkçe Vikipedi'de en çok okunan maddeleri (oturum boyunca önbellekte). */
+const topCache = {};
+async function topOfDay(y, m, d) {
+  const key = `${y}/${pad(m)}/${pad(d)}`;
+  return topCache[key] ||= topTitles(await getJson(`${PV}/${key}`));
+}
+function withNotes(cards, list, text) {
+  const by = Object.fromEntries(list.map(x => [x.title, x]));
+  for (const c of cards) {
+    const x = by[c.title];
+    c.note = text + (x ? ` · en çok okunanlarda ${x.rank}. sıra` : '');
+  }
+  return cards;
+}
+/** Gündemde: dünün (veri hazır değilse önceki günün) en çok okunanları. */
+async function fetchPopular() {
+  for (const back of [1, 2]) {
+    const t = new Date(Date.now() - back * 864e5);
+    const [y, m, d] = [t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate()];
+    let list;
+    try { list = await topOfDay(y, m, d); } catch { continue; }
+    const pick = shuffle(list.filter(x => !state.seen.has('p' + x.title))).slice(0, BATCH);
+    pick.forEach(x => state.seen.add('p' + x.title));
+    if (!pick.length) return [];
+    const cards = wikiToCards(await getJson(titlesUrl(pick.map(x => x.title))), 'populer');
+    return withNotes(cards, list, `${d} ${AYLAR[m - 1]}`);
+  }
+  throw new Error('okunma verisi alınamadı');
+}
+/** O gün popüler: geçmiş bir yılın bugününde en çok okunan film, dizi ve şarkı maddeleri. */
+async function fetchThatDay() {
+  const now = new Date(), m = now.getMonth() + 1, d = now.getDate();
+  const years = shuffle(pastYears(now).filter(y => !state.yearsUsed.has(y)));
+  if (!years.length) { state.yearsUsed.clear(); return []; }
+  for (const y of years.slice(0, 3)) {
+    state.yearsUsed.add(y);
+    const list = await topOfDay(y, m, d);
+    const media = [];
+    for (let i = 0; i < list.length && media.length < BATCH; i += 50) { // açıklamalar 50'şer sorulur
+      const p = new URLSearchParams({ action: 'query', format: 'json', origin: '*', prop: 'description', redirects: 1,
+        titles: list.slice(i, i + 50).map(x => x.title).join('|') });
+      const j = await getJson(API + '?' + p);
+      for (const pg of Object.values(j?.query?.pages || {})) if (isMedia(pg.description)) media.push(pg.title);
+    }
+    if (!media.length) continue;
+    const cards = wikiToCards(await getJson(titlesUrl(media.slice(0, BATCH))), 'ogun', { idPrefix: `o${y}-` });
+    if (cards.length) return withNotes(cards, list, `${d} ${AYLAR[m - 1]} ${y}`);
+  }
+  return [];
+}
+
 async function fetchCat(cat) {
   if (cat === 'bugun') {
     const d = new Date(), mm = d.getMonth() + 1, dd = d.getDate();
-    const j = await getJson(`${REST}/feed/onthisday/events/${String(mm).padStart(2, '0')}/${String(dd).padStart(2, '0')}`);
+    const j = await getJson(`${REST}/feed/onthisday/events/${pad(mm)}/${pad(dd)}`);
     return onThisDayToCards(j, mm, dd);
   }
-  return wikiToCards(await getJson(wikiUrl(cat)), cat);
+  if (cat === 'populer') return fetchPopular();
+  if (cat === 'ogun') return fetchThatDay();
+  if (cat === 'merak') return wikiToCards(await getJson(searchUrl(MERAK[Math.floor(Math.random() * MERAK.length)])), cat);
+  if (cat === 'seckin') return wikiToCards(await getJson(searchUrl(SECKIN_Q)), cat);
+  const t = TOPICS.find(t => t.key === cat);
+  if (t) return wikiToCards(await getJson(searchUrl('articletopic:' + t.q)), cat);
+  return wikiToCards(await getJson(randomUrl()), 'rastgele', { minBytes: MIN_BYTES_RANDOM });
 }
 
 /** Bir konudan kart getirir: önce ağ, olmazsa depo. */
@@ -114,8 +187,9 @@ async function source(cat, n) {
 
 /* ---------- Akış ---------- */
 function pickMixSource() {
-  const cats = ['rastgele', 'ilkyardim', ...TOPICS.map(t => t.key)];
-  const w = [4, 0.6, ...TOPICS.map(t => topicWeight(likes[t.key]))];
+  // Doğrulanmamış başlangıç ağırlıkları: ilgi çekici kaynaklar öne, düz rastgele geriye
+  const cats = ['merak', 'seckin', 'populer', 'ogun', 'rastgele', 'ilkyardim', ...TOPICS.map(t => t.key)];
+  const w = [4, 3, 2, 1.5, 0.7, 0.4, ...TOPICS.map(t => topicWeight(likes[t.key]))];
   if (!state.todayUsed) { cats.push('bugun'); w.push(3); }
   return pickWeighted(cats, w);
 }
@@ -129,7 +203,7 @@ async function nextCards() {
     if (c === 'bugun') state.todayUsed = true;
     const pool = state.pool[c] ||= [];
     if (pool.length < MIX_TAKE) pool.push(...await source(c, BATCH));
-    const take = pool.splice(0, c === 'ilkyardim' ? 1 : c === 'bugun' ? 3 : MIX_TAKE).filter(x => !state.seen.has(x.id));
+    const take = pool.splice(0, c === 'ilkyardim' ? 1 : ['bugun', 'ogun', 'populer'].includes(c) ? 3 : MIX_TAKE).filter(x => !state.seen.has(x.id));
     if (take.length) return take;
   }
   return randomFromDb(null, BATCH);
@@ -208,8 +282,10 @@ function cardEl(c) {
   txt.append(
     Object.assign(document.createElement('span'), { className: 'tag', textContent: LABELS[c.cat] || c.cat }),
     Object.assign(document.createElement('h2'), { textContent: c.title }),
-    Object.assign(document.createElement('p'), { textContent: c.text }),
   );
+  if (c.desc) txt.append(Object.assign(document.createElement('div'), { className: 'desc', textContent: c.desc }));
+  if (c.note) txt.append(Object.assign(document.createElement('div'), { className: 'note', textContent: c.note }));
+  txt.append(Object.assign(document.createElement('p'), { textContent: c.text }));
   if (c.url) txt.append(Object.assign(document.createElement('a'), { className: 'more', href: c.url, target: '_blank', rel: 'noopener', textContent: 'Tamamını oku' }));
   txt.append(Object.assign(document.createElement('div'), { className: 'src', textContent: c.cat === 'ilkyardim' ? 'Genel bilgilendirme · Acil durumda 112' : (c.src || 'Vikipedi') + ' · CC BY-SA' }));
   el.append(txt);
@@ -294,7 +370,11 @@ const seeObs = new IntersectionObserver(entries => {
 function go(dir) { feed.scrollBy({ top: dir * feed.clientHeight, behavior: 'smooth' }); }
 addEventListener('keydown', e => {
   if (e.target.closest('select,input') || $('.sheet:not([hidden])')) return;
-  if (e.key === ' ' && rs.el && !rs.done) { e.preventDefault(); return rsvpPause(!rs.paused); }
+  if (rs.el) {
+    if (e.key === ' ') { e.preventDefault(); return transport(rs.el, 'play'); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); return transport(rs.el, 'back'); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); return transport(rs.el, 'fwd'); }
+  }
   if (['ArrowDown', ' ', 'j'].includes(e.key)) { e.preventDefault(); go(1); }
   if (['ArrowUp', 'k'].includes(e.key)) { e.preventDefault(); go(-1); }
   if (e.key === 'l' && state.active?.card) setLike(state.active, !state.active.card.liked);
@@ -331,8 +411,17 @@ feed.addEventListener('pointerdown', () => holding = true);
 ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => feed.addEventListener(t, () => holding = false));
 
 /* ---------- Hızlı okuma (RSVP) ---------- */
-const rs = { el: null, words: [], i: 0, t: 0, paused: false, done: false, t0: 0 };
+const rs = { el: null, words: [], starts: [0], i: 0, t: 0, paused: false, done: false, t0: 0 };
 const fmt = n => n.toLocaleString('tr-TR');
+
+const TI = {
+  restart: '<path d="M4 4v6h6"/><path d="M4.6 14.5A8 8 0 1 0 6.3 6.3L4 10"/>',
+  back: '<path d="M11 6l-7 6 7 6zM20 6l-7 6 7 6z"/>',
+  play: '<path d="M7 4l13 8-13 8z"/>',
+  pause: '<path d="M7 4h3.5v16H7zM13.5 4H17v16h-3.5z"/>',
+  fwd: '<path d="M13 6l7 6-7 6zM4 6l7 6-7 6z"/>',
+};
+const tsvg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${TI[k]}</svg>`;
 
 function stageOf(el) {
   let st = el.querySelector('.stage');
@@ -341,7 +430,13 @@ function stageOf(el) {
   st.className = 'stage';
   st.innerHTML =
     '<div class="word" role="button" aria-label="Duraklat ya da sürdür"><span class="l"></span><span class="p"></span><span class="r"></span></div>' +
-    '<div class="hint"></div><div class="rbar"><i></i></div>' +
+    '<div class="ctx"></div><div class="rbar"><i></i></div><div class="meta"></div>' +
+    '<div class="tp">' +
+      `<button data-tp="restart" aria-label="Baştan başlat">${tsvg('restart')}</button>` +
+      `<button data-tp="back" aria-label="Geri al: cümle başı">${tsvg('back')}</button>` +
+      `<button data-tp="play" class="pp" aria-label="Oynat ya da duraklat">${tsvg('pause')}</button>` +
+      `<button data-tp="fwd" aria-label="İleri sar: sonraki cümle">${tsvg('fwd')}</button>` +
+    '</div>' +
     '<div class="ctl"><button class="slow" aria-label="Yavaşlat">−</button><span class="wpm"></span><button class="fast" aria-label="Hızlandır">+</button></div>' +
     '<div class="end" hidden></div>';
   el.querySelector('.txt').after(st);
@@ -358,6 +453,29 @@ function paintWpm() {
   document.querySelectorAll('.stage .wpm').forEach(x => x.textContent = `${settings.wpm} kelime/dk`);
   const d = $('#s-wpm'); if (d) d.textContent = `${settings.wpm} kelime/dk`;
 }
+/** Etkin kartın sahnesini güncel kelimeye göre çizer. */
+function paint() {
+  const el = rs.el;
+  if (!el) return;
+  const st = stageOf(el), n = rs.words.length, i = Math.min(rs.i, n - 1);
+  showWord(st, rs.words[i]);
+  st.querySelector('.rbar i').style.width = (i + 1) / n * 100 + '%';
+  const [a, b] = sentenceRange(rs.starts, i, n);
+  const ctx = st.querySelector('.ctx');
+  if (ctx.dataset.a !== String(a)) { // yeni cümle: bağlam satırını kur
+    ctx.dataset.a = a;
+    ctx.replaceChildren(...rs.words.slice(a, b).flatMap(w => [Object.assign(document.createElement('span'), { textContent: w }), ' ']));
+  }
+  [...ctx.children].forEach((sp, k) => { sp.className = a + k === i ? 'cur' : a + k < i ? 'past' : ''; });
+  const left = n - i - 1, sec = Math.round(rsvpDuration(rs.words.slice(i + 1), settings.wpm) / 1000);
+  st.querySelector('.meta').textContent = rs.done ? '' : (rs.paused ? 'Duraklatıldı · ' : '') + `${fmt(left)} kelime kaldı · yaklaşık ${sec} sn`;
+  st.querySelector('.pp').innerHTML = tsvg(rs.paused || rs.done ? 'play' : 'pause');
+  el.classList.toggle('paused', rs.paused && !rs.done);
+}
+function schedule(extra = 0) {
+  clearTimeout(rs.t);
+  if (rs.el && !rs.paused && !rs.done) rs.t = setTimeout(rsvpStep, extra + wordDelay(rs.words[rs.i], settings.wpm));
+}
 function rsvpStop() {
   clearTimeout(rs.t);
   rs.el = null; rs.done = false;
@@ -365,35 +483,45 @@ function rsvpStop() {
 function rsvpStart(el) {
   rsvpStop();
   const st = stageOf(el);
-  el.classList.add('rsvp'); el.classList.remove('open', 'paused');
+  el.classList.add('rsvp'); el.classList.remove('open');
   st.querySelector('.end').hidden = true;
-  st.querySelector('.hint').textContent = '';
-  Object.assign(rs, { el, words: tokenize(el.card.text), i: 0, paused: false, done: false, t0: performance.now() });
-  if (!rs.words.length) return;
+  st.querySelector('.ctx').dataset.a = '';
+  const words = tokenize(el.card.text);
+  if (!words.length) return;
+  Object.assign(rs, { el, words, starts: sentenceStarts(words), i: 0, paused: false, done: false, t0: performance.now() });
   paintWpm();
-  showWord(st, rs.words[0]);
-  st.querySelector('.rbar i').style.width = '0';
-  rs.t = setTimeout(rsvpStep, 650 + wordDelay(rs.words[0], settings.wpm)); // göz odak noktasına yerleşsin
+  paint();
+  schedule(650); // göz odak noktasına yerleşsin
 }
 function rsvpStep() {
   const el = rs.el;
-  if (!el || !el.isConnected) return;
-  if (rs.paused || document.hidden || $('.sheet:not([hidden])')) { rs.t = setTimeout(rsvpStep, 200); return; }
-  if (++rs.i >= rs.words.length) return rsvpFinish();
-  const st = stageOf(el);
-  showWord(st, rs.words[rs.i]);
-  st.querySelector('.rbar i').style.width = (rs.i + 1) / rs.words.length * 100 + '%';
-  rs.t = setTimeout(rsvpStep, wordDelay(rs.words[rs.i], settings.wpm));
+  if (!el || !el.isConnected || rs.paused || rs.done) return;
+  if (document.hidden || $('.sheet:not([hidden])')) { rs.t = setTimeout(rsvpStep, 200); return; }
+  if (rs.i + 1 >= rs.words.length) return rsvpFinish();
+  rs.i++;
+  paint();
+  schedule();
 }
 function rsvpPause(on) {
   if (!rs.el || rs.done) return;
   rs.paused = on;
-  rs.el.classList.toggle('paused', on);
-  stageOf(rs.el).querySelector('.hint').textContent = on ? 'Duraklatıldı · sürdürmek için dokun' : '';
+  paint();
+  schedule();
+}
+/** Geri al / ileri sar / baştan: i. kelimeye atlar; duraklatılmışsa duraklı kalır. */
+function rsvpSeek(i) {
+  if (!rs.el) return;
+  rs.done = false;
+  stageOf(rs.el).querySelector('.end').hidden = true;
+  rs.i = Math.max(0, Math.min(i, rs.words.length - 1));
+  paint();
+  schedule(250);
 }
 function rsvpFinish() {
   const el = rs.el, st = stageOf(el), n = rs.words.length;
-  rs.done = true;
+  clearTimeout(rs.t);
+  rs.done = true; rs.paused = false;
+  paint();
   if (stats.date !== today()) Object.assign(stats, { date: today(), words: 0 });
   stats.words += n; stats.done += 1; saveStats();
   const sec = Math.max(1, Math.round((performance.now() - rs.t0) / 1000));
@@ -403,7 +531,7 @@ function rsvpFinish() {
     Object.assign(document.createElement('b'), { textContent: `Bitti · ${fmt(n)} kelime · ${sec} sn` }),
     Object.assign(document.createElement('small'), { textContent: `Bugün ${fmt(stats.words)} kelime okudun` }),
   );
-  const acts = [['next', 'Sıradaki'], ['again', 'Tekrar'], ['text', 'Metni göster']];
+  const acts = [['next', 'Sıradaki'], ['text', 'Metni göster']];
   if (faster) acts.unshift(['faster', `Hızlan: ${faster} kelime/dk`]);
   const row = document.createElement('div');
   row.className = 'acts';
@@ -418,17 +546,25 @@ function setWpm(w) {
   settings.wpm = v; saveSettings();
   stats.done = 0; saveStats(); // öneri sayacı yeni hızda baştan başlar
   paintWpm();
+  if (rs.el) paint();
+}
+function transport(el, tp) {
+  if (rs.el !== el) return rsvpStart(el);
+  if (tp === 'restart') return rsvpStart(el);
+  if (tp === 'play') return rs.done ? rsvpStart(el) : rsvpPause(!rs.paused);
+  if (tp === 'back') return rsvpSeek(seekBack(rs.starts, rs.done ? rs.words.length - 1 : rs.i));
+  if (tp === 'fwd') { const nx = seekFwd(rs.starts, rs.i); return nx < 0 ? (rs.done || rsvpFinish()) : rsvpSeek(nx); }
 }
 function stageClick(el, btn) {
+  if (btn?.dataset.tp) return transport(el, btn.dataset.tp);
   if (btn?.classList.contains('slow')) return setWpm(settings.wpm - WPM_STEP);
   if (btn?.classList.contains('fast')) return setWpm(settings.wpm + WPM_STEP);
   const act = btn?.dataset.act;
   if (act) {
     clearTimeout(rs.t);
     if (act === 'next') return go(1);
-    if (act === 'again') return rsvpStart(el);
     if (act === 'faster') { setWpm(+btn.dataset.wpm); toast(`Yeni hız: ${settings.wpm} kelime/dk`); return go(1); }
-    if (act === 'text') { rsvpStop(); el.classList.remove('rsvp'); el.classList.add('open'); return; }
+    if (act === 'text') { rsvpStop(); el.classList.remove('rsvp', 'paused'); el.classList.add('open'); return; }
   }
   if (rs.el === el && !rs.done) rsvpPause(!rs.paused);
 }
@@ -483,7 +619,7 @@ function welcomeCard() {
 }
 
 /* ---------- Üst çubuk, sekmeler, paneller ---------- */
-const CHIPS = ['karisik', 'rastgele', 'bugun', 'ilkyardim', ...TOPICS.map(t => t.key)];
+const CHIPS = ['karisik', 'merak', 'populer', 'ogun', 'seckin', 'bugun', 'felsefe', ...TOPICS.map(t => t.key).filter(k => k !== 'felsefe'), 'rastgele', 'ilkyardim'];
 $('#chips').append(...CHIPS.map(k => {
   const b = Object.assign(document.createElement('button'), { textContent: LABELS[k] });
   b.dataset.cat = k;
@@ -536,8 +672,8 @@ async function renderSaved() {
 }
 
 /* ---------- Depo: toplu indirme ---------- */
-const DCATS = ['rastgele', ...TOPICS.map(t => t.key), 'bugun'];
-$('#d-cat').append(...DCATS.map(k => new Option(k === 'rastgele' ? 'Her şeyden (rastgele)' : LABELS[k], k)));
+const DCATS = ['merak', 'seckin', ...TOPICS.map(t => t.key), 'rastgele'];
+$('#d-cat').append(...DCATS.map(k => new Option(LABELS[k], k)));
 
 $('#s-mode').addEventListener('click', e => { const m = e.target.dataset.mode; if (m) setMode(m, true); });
 $('#s-slow').onclick = () => setWpm(settings.wpm - WPM_STEP);
@@ -553,7 +689,7 @@ async function renderDepot() {
   const est = await navigator.storage?.estimate?.().catch(() => null);
   $('#d-space').textContent = est?.quota ? `Kullanılan alan: ${(est.usage / 1e6).toFixed(1)} MB · tarayıcının ayırabildiği: ${(est.quota / 1e9).toFixed(1)} GB` : '';
   const rows = [];
-  for (const k of ['rastgele', 'bugun', 'ilkyardim', ...TOPICS.map(t => t.key)]) {
+  for (const k of Object.keys(LABELS).filter(k => k !== 'karisik')) {
     const n = await countCards(k);
     if (n) rows.push(Object.assign(document.createElement('span'), { textContent: LABELS[k] }), Object.assign(document.createElement('span'), { textContent: n.toLocaleString('tr-TR') }));
   }
@@ -588,7 +724,7 @@ async function download(cat, target, withImg) {
     added += fresh.length;
     dry = fresh.length ? 0 : dry + 1;
     show(`${added.toLocaleString('tr-TR')} / ${target.toLocaleString('tr-TR')} yeni kart`);
-    if (dry >= 5 || cat === 'bugun') break; // bu konuda yeni kart çıkmıyor
+    if (dry >= 5) break; // bu konuda yeni kart çıkmıyor
     await new Promise(r => setTimeout(r, 250)); // Vikipedi'ye nazik ol
   }
   const why = dl.stop ? 'Durduruldu' : fail >= 3 ? 'Bağlantı koptu' : added >= target ? 'Tamamlandı' : 'Bu konuda yeni kart kalmadı';
